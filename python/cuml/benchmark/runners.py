@@ -25,10 +25,12 @@ class BenchmarkTimer:
     """Provides a context manager that runs a code block `reps` times
     and records results to the instance variable `timings`. Use like:
 
-    timer = BenchmarkTimer(rep=5)
-    for _ in timer.benchmark_runs():
-       ... do something ...
-    print(np.min(timer.timings))
+    .. code-block:: python
+
+        timer = BenchmarkTimer(rep=5)
+        for _ in timer.benchmark_runs():
+            ... do something ...
+        print(np.min(timer.timings))
     """
 
     def __init__(self, reps=1):
@@ -91,7 +93,7 @@ class SpeedupComparisonRunner:
         cu_elapsed = np.min(cuml_timer.timings)
 
         if run_cpu and algo_pair.cpu_class is not None:
-            setup_overrides = algo_pair.set_up_cpu(data, **param_overrides)
+            setup_overrides = algo_pair.setup_cpu(data, **param_overrides)
 
             cpu_timer = BenchmarkTimer(self.n_reps)
             for rep in cpu_timer.benchmark_runs():

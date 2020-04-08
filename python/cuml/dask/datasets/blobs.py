@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019, NVIDIA CORPORATION.
+# Copyright (c) 2019-2020, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,28 +17,28 @@
 
 import cudf
 import cupy as cp
+import dask
 import dask.array as da
 import math
 import numpy as np
 import pandas as pd
 
-from dask import delayed
+from cuml.utils import rmm_cupy_ary
 from dask.dataframe import from_delayed
 from dask.distributed import default_client
 
 from sklearn.datasets import make_blobs as skl_make_blobs
 
-from uuid import uuid1
-
 
 def create_local_data(m, n, centers, cluster_std, random_state,
-                      dtype, type):
+                      dtype, type, order='F', shuffle=False):
     X, y = skl_make_blobs(m, n, centers=centers, cluster_std=cluster_std,
-                          random_state=random_state)
+                          random_state=random_state, shuffle=shuffle)
 
     if type == 'array':
-        X = cp.asarray(X.astype(dtype))
-        y = cp.asarray(y.astype(dtype)).reshape(m, 1)
+        X = rmm_cupy_ary(cp.array, X.astype(dtype), order=order)
+        y = rmm_cupy_ary(cp.array, y.astype(dtype),
+                         order=order).reshape(m)
 
     elif type == 'dataframe':
         X = cudf.DataFrame.from_pandas(pd.DataFrame(X.astype(dtype)))
@@ -65,8 +65,8 @@ def get_labels(t):
 
 def make_blobs(nrows, ncols, centers=8, n_parts=None, cluster_std=1.0,
                center_box=(-10, 10), random_state=None, verbose=False,
-               dtype=np.float32, output='dataframe'):
-
+               dtype=np.float32, output='dataframe',
+               order='F', shuffle=False):
     """
     Makes labeled dask.Dataframe and dask_cudf.Dataframes containing blobs
     for a randomly generated set of centroids.
@@ -114,25 +114,23 @@ def make_blobs(nrows, ncols, centers=8, n_parts=None, cluster_std=1.0,
 
     n_parts = n_parts if n_parts is not None else len(workers)
     parts_workers = (workers * n_parts)[:n_parts]
-    rows_per_part = math.ceil(nrows/n_parts)
+    rows_per_part = math.ceil(nrows / n_parts)
 
     if not isinstance(centers, np.ndarray):
         centers = np.random.uniform(center_box[0], center_box[1],
                                     size=(centers, ncols)).astype(np.float32)
 
     if verbose:
-        print("Generating %d samples acgraross %d partitions on "
+        print("Generating %d samples across %d partitions on "
               "%d workers (total=%d samples)" %
-              (math.ceil(nrows/len(workers)), n_parts, len(workers), nrows))
+              (math.ceil(nrows / len(workers)), n_parts, len(workers), nrows))
 
-    key = str(uuid1())
     # Create dfs on each worker (gpu)
-
     parts = []
     worker_rows = []
     rows_so_far = 0
     for idx, worker in enumerate(parts_workers):
-        if rows_so_far+rows_per_part <= nrows:
+        if rows_so_far + rows_per_part <= nrows:
             rows_so_far += rows_per_part
             worker_rows.append(rows_per_part)
         else:
@@ -140,36 +138,41 @@ def make_blobs(nrows, ncols, centers=8, n_parts=None, cluster_std=1.0,
 
         parts.append(client.submit(create_local_data, worker_rows[idx], ncols,
                                    centers, cluster_std, random_state, dtype,
-                                   output,
-                                   key="%s-%s" % (key, idx),
+                                   output, order, shuffle,
+                                   pure=False,
                                    workers=[worker]))
 
-    x_key = str(uuid1())
-    y_key = str(uuid1())
-
-    X = [client.submit(get_X, f, key="%s-%s" % (x_key, idx))
+    X = [client.submit(get_X, f, pure=False)
          for idx, f in enumerate(parts)]
-    y = [client.submit(get_labels, f, key="%s-%s" % (y_key, idx))
+    Y = [client.submit(get_labels, f, pure=False)
          for idx, f in enumerate(parts)]
 
     if output == 'dataframe':
 
-        meta_X = client.submit(get_meta, X[0]).result()
-        X = from_delayed(X, meta=meta_X)
+        meta_X = client.submit(get_meta, X[0])
+        meta_X_local = meta_X.result()
+        X_final = from_delayed([dask.delayed(x, pure=False)
+                                for x in X], meta=meta_X_local)
 
-        meta_y = client.submit(get_meta, y[0]).result()
-        y = from_delayed(y, meta=meta_y)
+        meta_y = client.submit(get_meta, Y[0])
+        meta_y_local = meta_y.result()
+        Y_final = from_delayed([dask.delayed(y, pure=False)
+                                for y in Y], meta=meta_y_local)
 
     elif output == 'array':
 
-        X = [da.from_delayed(delayed(chunk), shape=(worker_rows[idx], ncols),
-                             dtype=dtype)
-             for idx, chunk in enumerate(X)]
-        y = [da.from_delayed(delayed(chunk), shape=(worker_rows[idx], 1),
-                             dtype=dtype)
-             for idx, chunk in enumerate(y)]
+        X_del = [da.from_delayed(dask.delayed(chunk, pure=False),
+                                 shape=(worker_rows[idx], ncols),
+                                 dtype=dtype,
+                                 meta=cp.zeros((1)))
+                 for idx, chunk in enumerate(X)]
+        Y_del = [da.from_delayed(dask.delayed(chunk, pure=False),
+                                 shape=(worker_rows[idx],),
+                                 dtype=dtype,
+                                 meta=cp.zeros((1)))
+                 for idx, chunk in enumerate(Y)]
 
-        X = da.concatenate(X, axis=0)
-        y = da.concatenate(y, axis=0)
+        X_final = da.concatenate(X_del, axis=0)
+        Y_final = da.concatenate(Y_del, axis=0)
 
-    return X, y
+    return X_final, Y_final

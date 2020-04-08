@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019, NVIDIA CORPORATION.
+# Copyright (c) 2019-2020, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -86,6 +86,19 @@ class NearestNeighbors(Base):
     datapoints. Currently, cuML supports k-NN queries, which define
     the neighborhood as the closest `k` neighbors to each query point.
 
+    Parameters
+    ----------
+    n_neighbors : int (default=5)
+        Default number of neighbors to query
+    verbose : boolean (default=False)
+        Whether to print verbose logs
+    handle : cumlHandle
+        The cumlHandle resources to use
+    algorithm : string (default='brute')
+        The query algorithm to use. Currently, only 'brute' is supported.
+    metric : string (default='euclidean').
+        Distance metric to use.
+
     Examples
     ---------
     .. code-block:: python
@@ -111,12 +124,12 @@ class NearestNeighbors(Base):
       print(indices)
       print(distances)
 
+
     Output:
 
-    .. code-block:: python
+    .. code-block::
 
-
-    indices:
+        indices:
 
              0   1   2
         0    0  14  21
@@ -129,7 +142,7 @@ class NearestNeighbors(Base):
         23  23  16   9
         24  24  17  10
 
-    distances:
+        distances:
 
               0         1         2
         0   0.0  4.883116  5.570006
@@ -144,12 +157,12 @@ class NearestNeighbors(Base):
 
 
     Notes
-    ------
+    -----
 
     For an additional example see `the NearestNeighbors notebook
     <https://github.com/rapidsai/notebook/blob/master/python/notebooks/nearest_neighbors_demo.ipynb>`_.
 
-    For additional docs, see `scikitlearn's NearestNeighbors
+    For additional docs, see `scikit-learn's NearestNeighbors
     <https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.NearestNeighbors.html#sklearn.neighbors.NearestNeighbors>`_.
     """
     def __init__(self,
@@ -158,18 +171,6 @@ class NearestNeighbors(Base):
                  handle=None,
                  algorithm="brute",
                  metric="euclidean"):
-        """
-        Construct the NearestNeighbors object for training and querying.
-
-        Parameters
-        ----------
-        n_neighbors : int default number of neighbors to query (default=5)
-        verbose : boolean print verbose logs
-        handle : cumlHandle the cumlHandle resources to use
-        algorithm : string the query algorithm to use. Currently, only
-                    'brute' is supported.
-        metric : string distance metric to use. (default="euclidean").
-        """
 
         super(NearestNeighbors, self).__init__(handle, verbose)
 
@@ -258,8 +259,9 @@ class NearestNeighbors(Base):
         convert_dtype : bool, optional (default = True)
             When set to True, the kneighbors method will automatically
             convert the inputs to np.float32.
+
         Returns
-        ----------
+        -------
         distances: cuDF DataFrame or numpy ndarray
             The distances of the k-nearest neighbors for each column vector
             in X

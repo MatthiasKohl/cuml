@@ -25,12 +25,15 @@ import cuml.metrics
 import cuml.decomposition
 from cuml.utils.import_utils import has_umap
 import numpy as np
+import tempfile
 
 from cuml.benchmark.bench_helper_funcs import (
     fit,
     fit_kneighbors,
     fit_transform,
     predict,
+    _build_cpu_skl_classifier,
+    _build_fil_skl_classifier,
     _build_fil_classifier,
     _build_treelite_classifier,
     _treelite_fil_accuracy_score,
@@ -53,6 +56,28 @@ class AlgorithmPair:
     Provides mechanisms to run each version with default arguments.
     If no CPU-based version of the algorithm is available, pass None for the
     cpu_class when instantiating
+
+    Parameters
+    ----------
+    cpu_class : class
+       Class for CPU version of algorithm. Set to None if not available.
+    cuml_class : class
+       Class for cuML algorithm
+    shared_args : dict
+       Arguments passed to both implementations's initializer
+    cuml_args : dict
+       Arguments *only* passed to cuml's initializer
+    cpu_args dict
+       Arguments *only* passed to sklearn's initializer
+    accepts_labels : boolean
+       If True, the fit methods expects both X and y
+       inputs. Otherwise, it expects only an X input.
+    data_prep_hook : function (data -> data)
+       Optional function to run on input data before passing to fit
+    accuracy_function : function (y_test, y_pred)
+       Function that returns a scalar representing accuracy
+    bench_func : custom function to perform fit/predict/transform
+                 calls.
     """
 
     def __init__(
@@ -71,29 +96,6 @@ class AlgorithmPair:
         setup_cpu_func=None,
         setup_cuml_func=None,
     ):
-        """
-        Parameters
-        ----------
-        cpu_class : class
-           Class for CPU version of algorithm. Set to None if not available.
-        cuml_class : class
-           Class for cuML algorithm
-        shared_args : dict
-           Arguments passed to both implementations's initializer
-        cuml_args : dict
-           Arguments *only* passed to cuml's initializer
-        cpu_args dict
-           Arguments *only* passed to sklearn's initializer
-        accepts_labels : boolean
-           If True, the fit methods expects both X and y
-           inputs. Otherwise, it expects only an X input.
-        data_prep_hook : function (data -> data)
-           Optional function to run on input data before passing to fit
-        accuracy_function : function (y_test, y_pred)
-           Function that returns a scalar representing accuracy
-        bench_func : custom function to perform fit/predict/transform
-                     calls.
-        """
         if name:
             self.name = name
         else:
@@ -110,6 +112,7 @@ class AlgorithmPair:
         self.cpu_data_prep_hook = cpu_data_prep_hook
         self.cuml_data_prep_hook = cuml_data_prep_hook
         self.accuracy_function = accuracy_function
+        self.tmpdir = tempfile.mkdtemp()
 
     def __str__(self):
         return "AlgoPair:%s" % (self.name)
@@ -159,7 +162,7 @@ class AlgorithmPair:
             all_args = {**all_args, **override_args}
             return {
                 "cpu_setup_result": self.setup_cpu_func(
-                    self.cpu_class, data, all_args
+                    self.cpu_class, data, all_args, self.tmpdir
                 )
             }
         else:
@@ -171,7 +174,7 @@ class AlgorithmPair:
             all_args = {**all_args, **override_args}
             return {
                 "cuml_setup_result": self.setup_cuml_func(
-                    self.cuml_class, data, all_args
+                    self.cuml_class, data, all_args, self.tmpdir
                 )
             }
         else:
@@ -281,7 +284,7 @@ def all_algorithms():
         AlgorithmPair(
             sklearn.linear_model.LogisticRegression,
             cuml.linear_model.LogisticRegression,
-            shared_args=dict(solver="lbfgs"),
+            shared_args=dict(),  # Use default solvers
             name="LogisticRegression",
             accepts_labels=True,
             accuracy_function=metrics.accuracy_score,
@@ -323,10 +326,10 @@ def all_algorithms():
         AlgorithmPair(
             treelite if has_treelite() else None,
             cuml.ForestInference,
-            shared_args=dict(num_rounds=10, max_depth=10),
+            shared_args=dict(num_rounds=100, max_depth=10),
             cuml_args=dict(
-                fil_algo="BATCH_TREE_REORG",
-                output_class=True,
+                fil_algo="AUTO",
+                output_class=False,
                 threshold=0.5,
                 storage_type="AUTO",
             ),
@@ -335,6 +338,23 @@ def all_algorithms():
             setup_cpu_func=_build_treelite_classifier,
             setup_cuml_func=_build_fil_classifier,
             cpu_data_prep_hook=_treelite_format_hook,
+            accuracy_function=_treelite_fil_accuracy_score,
+            bench_func=predict,
+        ),
+        AlgorithmPair(
+            treelite if has_treelite() else None,
+            cuml.ForestInference,
+            shared_args=dict(n_estimators=100, max_leaf_nodes=2**10),
+            cuml_args=dict(
+                fil_algo="AUTO",
+                output_class=False,
+                threshold=0.5,
+                storage_type="SPARSE",
+            ),
+            name="Sparse-FIL-SKL",
+            accepts_labels=False,
+            setup_cpu_func=_build_cpu_skl_classifier,
+            setup_cuml_func=_build_fil_skl_classifier,
             accuracy_function=_treelite_fil_accuracy_score,
             bench_func=predict,
         ),

@@ -18,28 +18,30 @@ ARGS=$*
 # script, and that this script resides in the repo dir!
 REPODIR=$(cd $(dirname $0); pwd)
 
-VALIDARGS="clean libcuml cuml prims bench -v -g -n --allgpuarch --singlegpu -h --help"
+VALIDARGS="clean libcuml cuml prims bench prims-bench -v -g -n --allgpuarch --singlegpu --nvtx --show_depr_warn -h --help"
 HELP="$0 [<target> ...] [<flag> ...]
  where <target> is:
-   clean         - remove all existing build artifacts and configuration (start over)
-   libcuml       - build the cuml C++ code only. Also builds the C-wrapper library
-                   around the C++ code.
-   cuml          - build the cuml Python package
-   prims         - build the ML prims tests
-   bench         - build the cuml C++ benchmark
+   clean            - remove all existing build artifacts and configuration (start over)
+   libcuml          - build the cuml C++ code only. Also builds the C-wrapper library
+                      around the C++ code.
+   cuml             - build the cuml Python package
+   prims            - build the ML prims tests
+   bench            - build the cuml C++ benchmark
+   prims-bench      - build the ml-prims C++ benchmark
  and <flag> is:
-   -v            - verbose build mode
-   -g            - build for debug
-   -n            - no install step
-   --allgpuarch  - build for all supported GPU architectures
-   --singlegpu   - Build cuml without multigpu support (multigpu requires libcumlprims)
-   -h            - print this text
+   -v               - verbose build mode
+   -g               - build for debug
+   -n               - no install step
+   --allgpuarch     - build for all supported GPU architectures
+   --singlegpu      - Build cuml without multigpu support (multigpu requires libcumlprims)
+   --nvtx           - Enable nvtx for profiling support
+   --show_depr_warn - show cmake deprecation warnings
+   -h               - print this text
 
  default action (no args) is to build and install 'libcuml', 'cuml', and 'prims' targets only for the detected GPU arch
 "
 LIBCUML_BUILD_DIR=${REPODIR}/cpp/build
 CUML_BUILD_DIR=${REPODIR}/python/build
-FAISS_DIR=${REPODIR}/thirdparty/faiss
 PYTHON_DEPS_CLONE=${REPODIR}/python/external_repositories
 BUILD_DIRS="${LIBCUML_BUILD_DIR} ${CUML_BUILD_DIR} ${PYTHON_DEPS_CLONE}"
 
@@ -49,7 +51,9 @@ BUILD_TYPE=Release
 INSTALL_TARGET=install
 BUILD_ALL_GPU_ARCH=0
 SINGLEGPU=""
+NVTX=OFF
 CLEAN=0
+BUILD_DISABLE_DEPRECATION_WARNING=ON
 
 # Set defaults for vars that may not have been defined externally
 #  FIXME: if INSTALL_PREFIX is not set, check PREFIX, then check
@@ -93,6 +97,12 @@ fi
 if hasArg --singlegpu; then
     SINGLEGPU="--singlegpu"
 fi
+if hasArg --nvtx; then
+    NVTX=ON
+fi
+if hasArg --show_depr_warn; then
+    BUILD_DISABLE_DEPRECATION_WARNING=OFF
+fi
 if hasArg clean; then
     CLEAN=1
 fi
@@ -113,7 +123,7 @@ fi
 
 ################################################################################
 # Configure for building all C++ targets
-if (( ${NUMARGS} == 0 )) || hasArg libcuml || hasArg prims || hasArg bench; then
+if (( ${NUMARGS} == 0 )) || hasArg libcuml || hasArg prims || hasArg bench || hasArg prims-bench; then
     if (( ${BUILD_ALL_GPU_ARCH} == 0 )); then
         GPU_ARCH=""
         echo "Building for the architecture of the GPU in the system..."
@@ -132,10 +142,12 @@ if (( ${NUMARGS} == 0 )) || hasArg libcuml || hasArg prims || hasArg bench; then
           -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
           -DBUILD_CUML_C_LIBRARY=ON \
           -DBUILD_CUML_STD_COMMS=ON \
-          -DWITH_UCX=OFF \
+          -DWITH_UCX=ON \
           -DBUILD_CUML_MPI_COMMS=OFF \
+          -DNVTX=${NVTX} \
           -DPARALLEL_LEVEL=${PARALLEL_LEVEL} \
           -DNCCL_PATH=${INSTALL_PREFIX} \
+          -DDISABLE_DEPRECATION_WARNING=${BUILD_DISABLE_DEPRECATION_WARNING} \
           -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX} ..
 
 fi
@@ -151,6 +163,9 @@ if hasArg prims; then
 fi
 if hasArg bench; then
     MAKE_TARGETS="${MAKE_TARGETS} sg_benchmark"
+fi
+if hasArg prims-bench; then
+    MAKE_TARGETS="${MAKE_TARGETS} prims_benchmark"
 fi
 
 # If `./build.sh cuml` is called, don't build C/C++ components

@@ -23,6 +23,7 @@
 
 #include <cublas_v2.h>
 #include <cusolverDn.h>
+#include <cusolverSp.h>
 #include <cusparse.h>
 
 #include <common/cuml_comms_int.hpp>
@@ -54,6 +55,7 @@ class cumlHandle_impl {
 
   cublasHandle_t getCublasHandle() const;
   cusolverDnHandle_t getcusolverDnHandle() const;
+  cusolverSpHandle_t getcusolverSpHandle() const;
   cusparseHandle_t getcusparseHandle() const;
 
   cudaStream_t getInternalStream(int sid) const;
@@ -75,14 +77,20 @@ class cumlHandle_impl {
   const int _dev_id;
   const int _num_streams;
   std::vector<cudaStream_t> _streams;
-  cublasHandle_t _cublas_handle;
-  cusolverDnHandle_t _cusolverDn_handle;
-  cusparseHandle_t _cusparse_handle;
+  mutable cublasHandle_t _cublas_handle;
+  mutable bool _cublasInitialized;
+  mutable cusolverDnHandle_t _cusolverDn_handle;
+  mutable bool _cusolverDnInitialized;
+  mutable cusolverSpHandle_t _cusolverSp_handle;
+  mutable bool _cusolverSpInitialized;
+  mutable cusparseHandle_t _cusparse_handle;
+  mutable bool _cusparseInitialized;
   std::shared_ptr<deviceAllocator> _deviceAllocator;
   std::shared_ptr<hostAllocator> _hostAllocator;
   cudaStream_t _userStream;
   cudaEvent_t _event;
-  cudaDeviceProp prop;
+  mutable cudaDeviceProp _prop;
+  mutable bool _devicePropInitialized;
 
   std::shared_ptr<MLCommon::cumlCommunicator> _communicator;
 
